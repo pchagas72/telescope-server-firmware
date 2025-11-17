@@ -3,3 +3,4 @@ sdkconfig.old
 build
 dependencies.lock
 .clangd
+.cache
