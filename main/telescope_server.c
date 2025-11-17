@@ -8,6 +8,7 @@
 
 #include "driver/gpio.h"
 #include "esp_err.h"
+#include "esp_event_base.h"
 #include "esp_wifi_types_generic.h"
 #include "portmacro.h"
 
@@ -25,6 +26,59 @@
 #define MQTT_QOS 1
 
 static void blink_led(int n, int delay);
+static void mqtt_event_handler(void *handler_args,
+        esp_event_base_t base,
+        int32_t event,
+        void *event_data);
+
+void app_main(void)
+{
+    char *taskName = pcTaskGetName(NULL);
+    ESP_LOGI(taskName, "Task starting up\n");
+
+    // Start internet connection
+    ESP_ERROR_CHECK(nvs_flash_init());
+    ESP_ERROR_CHECK(esp_netif_init());
+    ESP_ERROR_CHECK(esp_event_loop_create_default());
+    ESP_ERROR_CHECK(example_connect());
+
+    // Gather info about internet connection
+    wifi_ap_record_t ap_info;
+    if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK){
+        ESP_LOGI("WiFi", "Connected to %s\n", ap_info.ssid);
+        blink_led(3, 100);
+    }
+
+    esp_mqtt_client_config_t mqtt_cfg = {
+            .broker.address.uri = "mqtt://192.168.1.17:1883",
+    };
+
+    esp_mqtt_client_handle_t client = esp_mqtt_client_init(&mqtt_cfg);
+    esp_mqtt_client_register_event(client, ESP_EVENT_ANY_ID, mqtt_event_handler, client);
+    esp_mqtt_client_start(client);
+
+    blink_led(3, 500);
+    while (1)
+    {
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+    }
+}
+
+// TODO: ADD MUTEX TO CONTROL THIS FUNCTION
+void blink_led(int n, int delay)
+{
+    gpio_reset_pin(BLINK_LED);
+    gpio_set_direction(BLINK_LED, GPIO_MODE_OUTPUT);
+
+    for (int i = 0; i < n; i++) {
+        gpio_set_level(BLINK_LED, 1);
+        vTaskDelay(delay / portTICK_PERIOD_MS);
+        gpio_set_level(BLINK_LED, 0);
+        vTaskDelay(delay / portTICK_PERIOD_MS);
+    }
+
+    vTaskDelay(500 / portTICK_PERIOD_MS);
+}
 
 // This is a default function that will always be called
 static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data)
@@ -65,52 +119,4 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
     default:
         break;
     }
-}
-
-void app_main(void)
-{
-    char *taskName = pcTaskGetName(NULL);
-    ESP_LOGI(taskName, "Task starting up\n");
-
-    // Start internet connection
-    ESP_ERROR_CHECK(nvs_flash_init());
-    ESP_ERROR_CHECK(esp_netif_init());
-    ESP_ERROR_CHECK(esp_event_loop_create_default());
-    ESP_ERROR_CHECK(example_connect());
-
-    // Gather info about internet connection
-    wifi_ap_record_t ap_info;
-    if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK){
-        ESP_LOGI("WiFi", "Connected to %s\n", ap_info.ssid);
-        blink_led(3, 100);
-    }
-
-    esp_mqtt_client_config_t mqtt_cfg = {
-            .broker.address.uri = "mqtt://192.168.1.17:1883",
-    };
-
-    esp_mqtt_client_handle_t client = esp_mqtt_client_init(&mqtt_cfg);
-    esp_mqtt_client_register_event(client, ESP_EVENT_ANY_ID, mqtt_event_handler, client);
-    esp_mqtt_client_start(client);
-
-    blink_led(3, 500);
-    while (1)
-    {
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
-    }
-}
-
-void blink_led(int n, int delay)
-{
-    gpio_reset_pin(BLINK_LED);
-    gpio_set_direction(BLINK_LED, GPIO_MODE_OUTPUT);
-
-    for (int i = 0; i < n; i++) {
-        gpio_set_level(BLINK_LED, 1);
-        vTaskDelay(delay / portTICK_PERIOD_MS);
-        gpio_set_level(BLINK_LED, 0);
-        vTaskDelay(delay / portTICK_PERIOD_MS);
-    }
-
-    vTaskDelay(500 / portTICK_PERIOD_MS);
 }
