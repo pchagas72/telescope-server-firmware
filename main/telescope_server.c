@@ -20,11 +20,25 @@
 #include "esp_wifi.h"
 
 #include "mqtt_client.h"
+#include <esp_crt_bundle.h>
 #include <pthread.h>
 
 #define BLINK_LED 2
-#define MQTT_TOPIC "home/testing"
+#define SERVER_NAME "BRAVO"
+
 #define MQTT_QOS 1
+#define MQTT_TOPIC "home/testing"
+
+#define MQTT_URL_SCHEME "mqtts"
+#define MQTT_IP ""
+#define MQTT_PORT "8883"
+
+#define MQTT_USER ""
+#define MQTT_PASSWORD ""
+
+char mqtt_receive_topic[32];
+char mqtt_response_topic[32];
+char mqtt_broker_address[128];
 
 typedef struct server_state{
     bool connected_to_internet;
@@ -45,6 +59,13 @@ void app_main(void)
     char *taskName = pcTaskGetName(NULL);
     ESP_LOGI(taskName, "Task starting up\n");
 
+    // Define topics and server
+    snprintf(mqtt_receive_topic, sizeof(mqtt_receive_topic), "servers/%s/command", SERVER_NAME);
+    snprintf(mqtt_response_topic, sizeof(mqtt_response_topic), "servers/%s/response", SERVER_NAME);
+    snprintf(mqtt_broker_address, sizeof(mqtt_broker_address), "%s://%s:%s",
+            MQTT_URL_SCHEME,
+            MQTT_IP,
+            MQTT_PORT);
 
     // Start internet connection
     ESP_ERROR_CHECK(nvs_flash_init());
@@ -61,14 +82,17 @@ void app_main(void)
     }
 
     esp_mqtt_client_config_t mqtt_cfg = {
-            .broker.address.uri = "mqtt://192.168.1.17:1883",
+            .broker.address.uri = mqtt_broker_address,
+            .broker.verification.crt_bundle_attach = esp_crt_bundle_attach,
+            .credentials.username = MQTT_USER,      // Add Username
+            .credentials.authentication.password = MQTT_PASSWORD, // Add Password
     };
 
     esp_mqtt_client_handle_t client = esp_mqtt_client_init(&mqtt_cfg);
     esp_mqtt_client_register_event(client, ESP_EVENT_ANY_ID, mqtt_event_handler, client);
     esp_mqtt_client_start(client);
-
     blink_led(3, 500, &led_mutex);
+
     while (1)
     {
         if (!state.connected_to_mqtt || !state.connected_to_internet) {
@@ -78,7 +102,6 @@ void app_main(void)
     }
 }
 
-// TODO: ADD MUTEX TO CONTROL THIS FUNCTION
 void blink_led(int n, int delay, pthread_mutex_t *led_mutex)
 {
     pthread_mutex_lock(led_mutex);
@@ -114,17 +137,17 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
         esp_mqtt_client_subscribe(client, "servers/ALL/command", MQTT_QOS);
         ESP_LOGI("MQTT", "Connected to %s", "servers/ALL/command");
 
-        esp_mqtt_client_subscribe(client, "servers/BRAVO/command", MQTT_QOS);
-        ESP_LOGI("MQTT", "Connected to %s", "servers/BRAVO/command");
+        esp_mqtt_client_subscribe(client, mqtt_receive_topic, MQTT_QOS);
+        ESP_LOGI("MQTT", "Connected to %s", mqtt_response_topic);
         break;
 
     case MQTT_EVENT_DATA:
         if (strncmp(event->data, "sv.ping", event->data_len) == 0) {
             blink_led(1, 100, &led_mutex);
-            ESP_LOGI("MQTT", "Received ping from base\n"); // TODO: ADD BASE_ID TO MSG
+            ESP_LOGI("MQTT", "Received ping from base\n");
             char response_payload[64];
             snprintf(response_payload, sizeof(response_payload), "BRAVO: received ping packet.");
-            esp_mqtt_client_publish(client, "home/testing", response_payload, 0, 1, 0);
+            esp_mqtt_client_publish(client, mqtt_response_topic, response_payload, 0, 1, 0);
             blink_led(1, 100, &led_mutex);
         }
         break;
