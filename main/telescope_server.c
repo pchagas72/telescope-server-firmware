@@ -22,22 +22,14 @@
 #include "mqtt_client.h"
 #include <esp_crt_bundle.h>
 #include <pthread.h>
+#include "sdkconfig.h"
 
 #define BLINK_LED 2
-#define SERVER_NAME "BRAVO"
-
-#define MQTT_QOS 1
-#define MQTT_TOPIC "home/testing"
 
 #define MQTT_URL_SCHEME "mqtts"
-#define MQTT_IP ""
-#define MQTT_PORT "8883"
 
-#define MQTT_USER ""
-#define MQTT_PASSWORD ""
-
-char mqtt_receive_topic[32];
-char mqtt_response_topic[32];
+char mqtt_receive_topic[64];
+char mqtt_response_topic[64];
 char mqtt_broker_address[128];
 
 typedef struct server_state{
@@ -60,12 +52,12 @@ void app_main(void)
     ESP_LOGI(taskName, "Task starting up\n");
 
     // Define topics and server
-    snprintf(mqtt_receive_topic, sizeof(mqtt_receive_topic), "servers/%s/command", SERVER_NAME);
-    snprintf(mqtt_response_topic, sizeof(mqtt_response_topic), "servers/%s/response", SERVER_NAME);
-    snprintf(mqtt_broker_address, sizeof(mqtt_broker_address), "%s://%s:%s",
+    snprintf(mqtt_receive_topic, sizeof(mqtt_receive_topic), "servers/%s/command", CONFIG_SERVER_NAME);
+    snprintf(mqtt_response_topic, sizeof(mqtt_response_topic), "servers/%s/response", CONFIG_SERVER_NAME);
+    snprintf(mqtt_broker_address, sizeof(mqtt_broker_address), "%s://%s:%d",
             MQTT_URL_SCHEME,
-            MQTT_IP,
-            MQTT_PORT);
+            CONFIG_MQTT_IP,
+            CONFIG_MQTT_PORT);
 
     // Start internet connection
     ESP_ERROR_CHECK(nvs_flash_init());
@@ -84,8 +76,8 @@ void app_main(void)
     esp_mqtt_client_config_t mqtt_cfg = {
             .broker.address.uri = mqtt_broker_address,
             .broker.verification.crt_bundle_attach = esp_crt_bundle_attach,
-            .credentials.username = MQTT_USER,      // Add Username
-            .credentials.authentication.password = MQTT_PASSWORD, // Add Password
+            .credentials.username = CONFIG_MQTT_USER,      // Add Username
+            .credentials.authentication.password = CONFIG_MQTT_PASSWORD, // Add Password
     };
 
     esp_mqtt_client_handle_t client = esp_mqtt_client_init(&mqtt_cfg);
@@ -131,13 +123,10 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
         state.connected_to_mqtt = true;
         blink_led(3, 100, &led_mutex);
 
-        esp_mqtt_client_subscribe(client, MQTT_TOPIC, MQTT_QOS);
-        ESP_LOGI("MQTT", "Connected to %s", MQTT_TOPIC);
-
-        esp_mqtt_client_subscribe(client, "servers/ALL/command", MQTT_QOS);
+        esp_mqtt_client_subscribe(client, "servers/ALL/command", CONFIG_MQTT_QOS);
         ESP_LOGI("MQTT", "Connected to %s", "servers/ALL/command");
 
-        esp_mqtt_client_subscribe(client, mqtt_receive_topic, MQTT_QOS);
+        esp_mqtt_client_subscribe(client, mqtt_receive_topic, CONFIG_MQTT_QOS);
         ESP_LOGI("MQTT", "Connected to %s", mqtt_response_topic);
         break;
 
