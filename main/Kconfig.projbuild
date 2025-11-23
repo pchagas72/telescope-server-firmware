@@ -38,4 +38,10 @@ menu "Telescope Configuration"
         help
             The guarantee level of message delivery between clients and a broker.
 
+    config MQTT_URL_SCHEME
+        string "MQTT URL Scheme"
+        default "mqtts"
+        help
+            mqtt for non-secure, mqtts for secure
+
 endmenu

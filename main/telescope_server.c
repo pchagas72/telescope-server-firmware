@@ -17,8 +17,7 @@
 
 #include "led_controls.h"
 #include "server_controls.h"
-
-#define MQTT_URL_SCHEME "mqtts"
+#include "protocol.h"
 
 Server_State state;
 pthread_mutex_t led_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -41,7 +40,7 @@ void app_main(void)
     snprintf(mqtt_receive_topic, sizeof(mqtt_receive_topic), "servers/%s/command", CONFIG_SERVER_NAME);
     snprintf(mqtt_response_topic, sizeof(mqtt_response_topic), "servers/%s/response", CONFIG_SERVER_NAME);
     snprintf(mqtt_broker_address, sizeof(mqtt_broker_address), "%s://%s:%d",
-            MQTT_URL_SCHEME,
+            CONFIG_MQTT_URL_SCHEME,
             CONFIG_MQTT_IP,
             CONFIG_MQTT_PORT);
 
@@ -80,7 +79,7 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
 
     switch ((esp_mqtt_event_id_t)event_id) {
     case MQTT_EVENT_CONNECTED:
-        ESP_LOGI("MQTT", "Connected to Broker!");
+        ESP_LOGI("MQTT", "Connected to Broker %s using the %s protocol.", CONFIG_MQTT_IP, CONFIG_MQTT_URL_SCHEME);
         state.connected_to_mqtt = true;
         blink_led(3, 100, &led_mutex);
 
@@ -90,15 +89,31 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
         esp_mqtt_client_subscribe(client, mqtt_receive_topic, CONFIG_MQTT_QOS);
         ESP_LOGI("MQTT", "Connected to %s", mqtt_response_topic);
         break;
-
     case MQTT_EVENT_DATA:
-        if (strncmp(event->data, "sv.ping", event->data_len) == 0) {
-            blink_led(1, 25, &led_mutex);
-            ESP_LOGI("MQTT", "Received ping from base\n");
+
+        if (event->data_len == sizeof(Message_Struct)) {
+            Message_Struct *msg = (Message_Struct *)event->data;
+
+            if (msg->type == PACKET_TYPE_PING) {
+                ESP_LOGI("PROTO", "PING Received | ID: %lu", (unsigned long)msg->packet_id);
+                blink_led(1, 25, &led_mutex);
+
+                // This should send the time that the message was received too
+                esp_mqtt_client_publish(client, 
+                        mqtt_response_topic, 
+                        event->data,       // The raw binary data
+                        event->data_len,   // The length (sizeof struct)
+                        1,                 // QoS
+                        0);                // Retain
+            }
+        }
+        // Legacy support bcs why not
+        else if (strncmp(event->data, "sv.ping", event->data_len) == 0) {
+            blink_led(1, 100, &led_mutex);
+            ESP_LOGI("MQTT", "Received legacy ping");
             char response_payload[64];
-            snprintf(response_payload, sizeof(response_payload), "BRAVO: received ping packet.");
+            snprintf(response_payload, sizeof(response_payload), "%s: Ping packet received.", CONFIG_SERVER_NAME);
             esp_mqtt_client_publish(client, mqtt_response_topic, response_payload, 0, 1, 0);
-            blink_led(1, 25, &led_mutex);
         }
         break;
 
