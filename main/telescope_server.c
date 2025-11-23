@@ -89,15 +89,12 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
         esp_mqtt_client_subscribe(client, mqtt_receive_topic, CONFIG_MQTT_QOS);
         ESP_LOGI("MQTT", "Connected to %s", mqtt_response_topic);
         break;
-    case MQTT_EVENT_DATA:
 
+    case MQTT_EVENT_DATA:
         if (event->data_len == sizeof(Message_Struct)) {
             Message_Struct *msg = (Message_Struct *)event->data;
 
             if (msg->type == PACKET_TYPE_PING) {
-                ESP_LOGI("PROTO", "PING Received | ID: %lu", (unsigned long)msg->packet_id);
-                blink_led(1, 25, &led_mutex);
-
                 // This should send the time that the message was received too
                 esp_mqtt_client_publish(client, 
                         mqtt_response_topic, 
@@ -106,13 +103,15 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
                         1,                 // QoS
                         0);                // Retain
             }
+            ESP_LOGI("PROTO", "PING Received | ID: %lu", (unsigned long)msg->packet_id);
+            blink_led(1, 25, &led_mutex);
         }
         // Legacy support bcs why not
         else if (strncmp(event->data, "sv.ping", event->data_len) == 0) {
-            blink_led(1, 100, &led_mutex);
-            ESP_LOGI("MQTT", "Received legacy ping");
             char response_payload[64];
             snprintf(response_payload, sizeof(response_payload), "%s: Ping packet received.", CONFIG_SERVER_NAME);
+            ESP_LOGI("MQTT", "Received legacy ping");
+            blink_led(1, 100, &led_mutex);
             esp_mqtt_client_publish(client, mqtt_response_topic, response_payload, 0, 1, 0);
         }
         break;

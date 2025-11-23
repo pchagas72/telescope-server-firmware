@@ -15,7 +15,6 @@ void blink_led(int n, int delay, pthread_mutex_t *led_mutex)
         vTaskDelay(delay / portTICK_PERIOD_MS);
     }
 
-    vTaskDelay(500 / portTICK_PERIOD_MS);
     pthread_mutex_unlock(led_mutex);
 }
 
