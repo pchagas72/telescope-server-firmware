@@ -1,7 +1,5 @@
-#include "include/server_controls.h"
+#include "server_controls.h"
 #include "led_controls.h"
-
-#define MQTT_URL_SCHEME "mqtts"
 
 void server_connect_internet(){
     ESP_ERROR_CHECK(nvs_flash_init());
