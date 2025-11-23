@@ -6,41 +6,27 @@
 #include <esp_log.h>
 #include <string.h>
 
-#include "driver/gpio.h"
 #include "esp_err.h"
 #include "esp_event_base.h"
-#include "esp_wifi_types_generic.h"
 #include "portmacro.h"
-
-#include "nvs_flash.h"
-#include "esp_netif.h"
-#include "esp_event.h"
-
-#include "protocol_examples_common.h"
-#include "esp_wifi.h"
 
 #include "mqtt_client.h"
 #include <esp_crt_bundle.h>
 #include <pthread.h>
 #include "sdkconfig.h"
 
-#define BLINK_LED 2
+#include "led_controls.h"
+#include "server_controls.h"
 
 #define MQTT_URL_SCHEME "mqtts"
+
+Server_State state;
+pthread_mutex_t led_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 char mqtt_receive_topic[64];
 char mqtt_response_topic[64];
 char mqtt_broker_address[128];
 
-typedef struct server_state{
-    bool connected_to_internet;
-    bool connected_to_mqtt;
-} Server_State;
-
-Server_State state;
-pthread_mutex_t led_mutex = PTHREAD_MUTEX_INITIALIZER;
-
-static void blink_led(int n, int delay, pthread_mutex_t *led_mutex);
 static void mqtt_event_handler(void *handler_args,
         esp_event_base_t base,
         int32_t event,
@@ -51,7 +37,7 @@ void app_main(void)
     char *taskName = pcTaskGetName(NULL);
     ESP_LOGI(taskName, "Task starting up\n");
 
-    // Define topics and server
+    // Read topics and server IP from the config
     snprintf(mqtt_receive_topic, sizeof(mqtt_receive_topic), "servers/%s/command", CONFIG_SERVER_NAME);
     snprintf(mqtt_response_topic, sizeof(mqtt_response_topic), "servers/%s/response", CONFIG_SERVER_NAME);
     snprintf(mqtt_broker_address, sizeof(mqtt_broker_address), "%s://%s:%d",
@@ -60,18 +46,10 @@ void app_main(void)
             CONFIG_MQTT_PORT);
 
     // Start internet connection
-    ESP_ERROR_CHECK(nvs_flash_init());
-    ESP_ERROR_CHECK(esp_netif_init());
-    ESP_ERROR_CHECK(esp_event_loop_create_default());
-    ESP_ERROR_CHECK(example_connect());
+    server_connect_internet();
 
     // Gather info about internet connection
-    wifi_ap_record_t ap_info;
-    if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK){
-        ESP_LOGI("WiFi", "Connected to %s\n", ap_info.ssid);
-        state.connected_to_internet = true;
-        blink_led(3, 100, &led_mutex);
-    }
+    server_check_connection_internet(&state, &led_mutex);
 
     esp_mqtt_client_config_t mqtt_cfg = {
             .broker.address.uri = mqtt_broker_address,
@@ -79,12 +57,12 @@ void app_main(void)
             .credentials.username = CONFIG_MQTT_USER,      // Add Username
             .credentials.authentication.password = CONFIG_MQTT_PASSWORD, // Add Password
     };
-
     esp_mqtt_client_handle_t client = esp_mqtt_client_init(&mqtt_cfg);
     esp_mqtt_client_register_event(client, ESP_EVENT_ANY_ID, mqtt_event_handler, client);
     esp_mqtt_client_start(client);
     blink_led(3, 500, &led_mutex);
 
+    // Any side processes can be executed here
     while (1)
     {
         if (!state.connected_to_mqtt || !state.connected_to_internet) {
@@ -94,24 +72,7 @@ void app_main(void)
     }
 }
 
-void blink_led(int n, int delay, pthread_mutex_t *led_mutex)
-{
-    pthread_mutex_lock(led_mutex);
-    gpio_reset_pin(BLINK_LED);
-    gpio_set_direction(BLINK_LED, GPIO_MODE_OUTPUT);
-
-    for (int i = 0; i < n; i++) {
-        gpio_set_level(BLINK_LED, 1);
-        vTaskDelay(delay / portTICK_PERIOD_MS);
-        gpio_set_level(BLINK_LED, 0);
-        vTaskDelay(delay / portTICK_PERIOD_MS);
-    }
-
-    vTaskDelay(500 / portTICK_PERIOD_MS);
-    pthread_mutex_unlock(led_mutex);
-}
-
-// This is a default function that will always be called
+// I like to treat this as the main function
 static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data)
 {
     esp_mqtt_event_handle_t event = event_data;
@@ -132,12 +93,12 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
 
     case MQTT_EVENT_DATA:
         if (strncmp(event->data, "sv.ping", event->data_len) == 0) {
-            blink_led(1, 100, &led_mutex);
+            blink_led(1, 25, &led_mutex);
             ESP_LOGI("MQTT", "Received ping from base\n");
             char response_payload[64];
             snprintf(response_payload, sizeof(response_payload), "BRAVO: received ping packet.");
             esp_mqtt_client_publish(client, mqtt_response_topic, response_payload, 0, 1, 0);
-            blink_led(1, 100, &led_mutex);
+            blink_led(1, 25, &led_mutex);
         }
         break;
 
